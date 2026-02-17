@@ -1,0 +1,18 @@
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Optional: if you want to exclude large data files (comment out if you want to include them)
+# *.npy
+# *.pkl
+# *.pt
+# *.parquet

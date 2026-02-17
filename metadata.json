@@ -1,0 +1,53 @@
+{
+  "num_sensors": 4,
+  "sensor_names": [
+    "STM1",
+    "STM2",
+    "STM3",
+    "STM4"
+  ],
+  "history_length": 12,
+  "prediction_horizon": 3,
+  "train_samples": 36875,
+  "val_samples": 7890,
+  "test_samples": 7890,
+  "total_time_steps": 52700,
+  "train_date_range": [
+    "2024-05-01 00:15:00",
+    "2025-05-20 07:30:00"
+  ],
+  "val_date_range": [
+    "2025-05-20 07:45:00",
+    "2025-08-10 15:45:00"
+  ],
+  "test_date_range": [
+    "2025-08-10 16:00:00",
+    "2025-11-01 00:00:00"
+  ],
+  "adjacency_matrix": [
+    [
+      1.0,
+      1.0,
+      0.0,
+      0.0
+    ],
+    [
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      1.0,
+      1.0,
+      1.0
+    ]
+  ]
+}

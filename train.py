@@ -1,176 +1,120 @@
 import torch
-import numpy as np
-import argparse
-import time
-import util
-from engine import trainer
-import os
-import pdb
+import torch.nn as nn
+import torch.nn.functional as F
+from stsgcl import STSGCL
+from modules import *
 
-parser = argparse.ArgumentParser()
+class STLGRU(nn.Module):
+    def __init__(self, num_nodes, input_dim, hidden_dim, seq_length, horizon, adj):
+        super(STLGRU, self).__init__()
+        
+        self.num_nodes = num_nodes
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.seq_length = seq_length
+        self.horizon = horizon
+        
+        # Spatial-Temporal Graph Convolution Layer
+        self.stsgcl = STSGCL(
+            c_in=input_dim,
+            c_out=hidden_dim,
+            num_nodes=num_nodes,
+            T=seq_length,
+            adj=adj
+        )
+        
+        # Gated Recurrent Unit for temporal processing
+        self.gru_cell = GRUCell(hidden_dim, hidden_dim)
+        
+        # Output layer
+        self.output_layer = nn.Linear(hidden_dim, horizon * num_nodes)
+        
+    def forward(self, x):
+        """
+        Args:
+            x: Input tensor of shape (batch, seq_length, num_nodes)
+        Returns:
+            out: Predictions of shape (batch, horizon, num_nodes)
+        """
+        batch_size, seq_len, num_nodes = x.shape
+        
+        # Apply STSGCL to each time step
+        h = []
+        for t in range(seq_len):
+            # Take one time step: (batch, num_nodes)
+            x_t = x[:, t, :].unsqueeze(-1)  # Shape: (batch, num_nodes, 1)
+            
+            # Apply graph convolution
+            h_t = self.stsgcl(x_t)  # Shape: (batch, num_nodes, hidden_dim)
+            h.append(h_t)
+        
+        # Stack along time dimension
+        h = torch.stack(h, dim=1)  # Shape: (batch, seq_len, num_nodes, hidden_dim)
+        
+        # Initialize hidden state
+        hidden_state = torch.zeros(batch_size, self.num_nodes, self.hidden_dim).to(x.device)
+        
+        # Process through GRU
+        outputs = []
+        for t in range(seq_len):
+            hidden_state = self.gru_cell(h[:, t, :, :], hidden_state)
+            
+        # Use final hidden state for prediction
+        last_hidden = hidden_state  # Shape: (batch, num_nodes, hidden_dim)
+        
+        # Flatten for output layer
+        last_hidden_flat = last_hidden.reshape(batch_size, -1)  # Shape: (batch, num_nodes * hidden_dim)
+        
+        # Generate predictions
+        out = self.output_layer(last_hidden_flat)  # Shape: (batch, horizon * num_nodes)
+        out = out.reshape(batch_size, self.horizon, self.num_nodes)  # Shape: (batch, horizon, num_nodes)
+        
+        return out
 
-parser.add_argument('--device',type=str,default='cuda:1',help='')
-
-parser.add_argument('--garage',type=str,default='./garage8',help='garage path')
-parser.add_argument('--batch_size',type=int,default=4,help='batch size')
-parser.add_argument('--data',type=str,default='data/PEMS08',help='data path')
-parser.add_argument('--adjdata',type=str,default='data/PEMS08/adj_pems08.pkl',help='adj data path')
-parser.add_argument('--num_nodes',type=int,default=170,help='number of nodes')    #7 :-> 883   4:-> 307  3:- 358   8:-> 170
-
-parser.add_argument('--out_length',type=int,default=12,help='Forecast sequence length')
-
-parser.add_argument('--n_hid',type=int,default=64,help='')
-parser.add_argument('--input_dim',type=int,default=1,help='inputs dimension')
-parser.add_argument('--dropout',type=float,default=0.3,help='dropout rate')
-
-
-parser.add_argument('--learning_rate',type=float,default=1e-3,help='learning rate')
-parser.add_argument('--epochs',type=int,default=200,help='') # 200
-parser.add_argument('--print_every',type=int,default=1500,help='Training print')
-parser.add_argument('--save',type=str,default='./garage8/PEMS08',help='save path')
-parser.add_argument('--expid',type=int,default=1,help='experiment id')
-parser.add_argument('--max_update_factor',type=int,default=1,help='max update factor')
-parser.add_argument('--seed',type=int,default=99,help='random seed')
-
-args = parser.parse_args()
-
-
-def setup_seed(seed):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-setup_seed(args.seed)
-
-# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-# os.environ["CUDA_VISIBLE_DEVICES"] = args.device
-
-def main():
-    device = torch.device(args.device)
-    adj = util.load_adj(args.adjdata)
-    if 'PEMS08' not in args.adjdata: adj =adj[2]
-    adj= torch.from_numpy(adj.astype(np.float32)).to(device)
-    dataloader = util.load_dataset(args.data, args.batch_size, args.batch_size, args.batch_size)
-    scaler = dataloader['scaler']
-
-    global_train_steps = dataloader['train_loader'].num_batch
-
-    print(args)
-    
-    engine = trainer(scaler, args, adj, global_train_steps , device)
-
-    print("start training...",flush=True)
-    his_loss =[]
-    val_time = []
-    train_time = []
-    for i in range(1,args.epochs+1):
-        train_loss = []
-        train_mae = []
-        train_mape = []
-        train_rmse = []
-        t1 = time.time()
-        dataloader['train_loader'].shuffle()
-        for iter, (x, y) in enumerate(dataloader['train_loader'].get_iterator()):
-            #pdb.set_trace()
-            trainx = torch.Tensor(x).to(device)
-            trainx= trainx
-            trainy = torch.Tensor(y).to(device)
-            trainy = trainy
-            metrics = engine.train(trainx, trainy[:,:,:,0])
-            train_loss.append(metrics[0])
-            train_mae.append(metrics[1])
-            train_mape.append(metrics[2])
-            train_rmse.append(metrics[3])
-            engine.scheduler.step() #
-            if iter % args.print_every == 0 :
-                log = 'Iter: {:03d}, Train Loss: {:.4f}, Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}'
-                print(log.format(iter, train_loss[-1], train_mae[-1], train_mape[-1], train_rmse[-1]),flush=True)
-        t2 = time.time()
-        train_time.append(t2-t1)
-
-        # val
-        valid_loss = []
-        valid_mae = []
-        valid_mape = []
-        valid_rmse = []
-
-        s1 = time.time()
-        for iter, (x, y) in enumerate(dataloader['val_loader'].get_iterator()):
-            testx = torch.Tensor(x).to(device)
-            testx = testx
-            testy = torch.Tensor(y).to(device)
-            testy = testy
-            metrics = engine.eval(testx, testy[:,:,:,0])
-            valid_loss.append(metrics[0])
-            valid_mae.append(metrics[1])
-            valid_mape.append(metrics[2])
-            valid_rmse.append(metrics[3])
-        s2 = time.time()
-        log = 'Epoch: {:03d}, Inference Time: {:.4f} secs'
-        print(log.format(i,(s2-s1)))
-        val_time.append(s2-s1)
-        mtrain_loss = np.mean(train_loss)
-        mtrain_mae = np.mean(train_mae)
-        mtrain_mape = np.mean(train_mape)
-        mtrain_rmse = np.mean(train_rmse)
-
-        mvalid_loss = np.mean(valid_loss)
-        mvalid_mae = np.mean(valid_mae)
-        mvalid_mape = np.mean(valid_mape)
-        mvalid_rmse = np.mean(valid_rmse)
-        his_loss.append(mvalid_loss)
-
-        log = 'Epoch: {:03d}, Train Loss: {:.4f}, Train MAE: {:.4f}, Train MAPE: {:.4f}, Train RMSE: {:.4f}, Valid Loss: {:.4f}, Valid MAE: {:.4f}, Valid MAPE: {:.4f}, Valid RMSE: {:.4f}, Training Time: {:.4f}/epoch'
-        print(log.format(i, mtrain_loss, mtrain_mae, mtrain_mape, mtrain_rmse, mvalid_loss, mvalid_mae, mvalid_mape, mvalid_rmse, (t2 - t1)),flush=True)
-        torch.save(engine.model.state_dict(), args.save+"_epoch_"+str(i)+"_"+str(round(mvalid_loss,2))+".pth")
-    print("Average Training Time: {:.4f} secs/epoch".format(np.mean(train_time)))
-    print("Average Inference Time: {:.4f} secs".format(np.mean(val_time)))
-
-
-    # test
-    bestid = np.argmin(his_loss)
-    engine.model.load_state_dict(torch.load(args.save+"_epoch_"+str(bestid+1)+"_"+str(round(his_loss[bestid],2))+".pth"))
-
-    outputs = []
-    realy = torch.Tensor(dataloader['y_test']).to(device)
-    realy = realy[:,:,:,0]
-
-    for iter, (x, y) in enumerate(dataloader['test_loader'].get_iterator()):
-        testx = torch.Tensor(x).to(device)
-        testx = testx
-        with torch.no_grad():
-            preds = engine.model(testx)
-        outputs.append(preds.squeeze())
-
-    yhat = torch.cat(outputs,dim=0)
-    yhat = yhat[:realy.size(0),...]
-
-    print("Training finished")
-    print("The valid loss on best model is", str(round(his_loss[bestid],4)))
-    print("The epoch of the best model is:", str(bestid + 1))
-
-    amae = []
-    amape = []
-    armse = []
-    for i in range(12):
-        pred = scaler.inverse_transform(yhat[:,i,:])
-        real = realy[:,i,:]
-        metrics = util.metric(pred,real)
-        log = 'Evaluate best model on test data for horizon {:d}, Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'
-        print(log.format(i+1, metrics[0], metrics[1], metrics[2]))
-        amae.append(metrics[0])
-        amape.append(metrics[1])
-        armse.append(metrics[2])
-
-    log = 'On average over 12 horizons, Test MAE: {:.4f}, Test MAPE: {:.4f}, Test RMSE: {:.4f}'
-    print(log.format(np.mean(amae),np.mean(amape),np.mean(armse)))
-    torch.save(engine.model.state_dict(), args.save+"_exp"+str(args.expid)+"_best_"+str(round(his_loss[bestid],2))+".pth")
-
-
-if __name__ == "__main__":
-    t1 = time.time()
-    main()
-    t2 = time.time()
-    #torch.cuda.empty_cache()
-    print("Total time spent: {:.4f}".format(t2-t1))
+# Simple GRU Cell implementation
+class GRUCell(nn.Module):
+    def __init__(self, input_dim, hidden_dim):
+        super(GRUCell, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        
+        # Reset gate
+        self.W_r = nn.Linear(input_dim + hidden_dim, hidden_dim)
+        
+        # Update gate
+        self.W_z = nn.Linear(input_dim + hidden_dim, hidden_dim)
+        
+        # Candidate hidden state
+        self.W_h = nn.Linear(input_dim + hidden_dim, hidden_dim)
+        
+    def forward(self, x, h_prev):
+        """
+        Args:
+            x: Current input (batch, num_nodes, input_dim)
+            h_prev: Previous hidden state (batch, num_nodes, hidden_dim)
+        Returns:
+            h_next: Next hidden state (batch, num_nodes, hidden_dim)
+        """
+        # Flatten node dimension for linear layers
+        batch_size, num_nodes, _ = x.shape
+        x_flat = x.reshape(batch_size * num_nodes, -1)
+        h_prev_flat = h_prev.reshape(batch_size * num_nodes, -1)
+        
+        # Concatenate input and previous hidden state
+        combined = torch.cat([x_flat, h_prev_flat], dim=1)
+        
+        # Gates
+        r = torch.sigmoid(self.W_r(combined))
+        z = torch.sigmoid(self.W_z(combined))
+        
+        # Candidate hidden state
+        combined_candidate = torch.cat([x_flat, r * h_prev_flat], dim=1)
+        h_tilde = torch.tanh(self.W_h(combined_candidate))
+        
+        # New hidden state
+        h_next_flat = (1 - z) * h_prev_flat + z * h_tilde
+        
+        # Reshape back
+        h_next = h_next_flat.reshape(batch_size, num_nodes, -1)
+        
+        return h_next

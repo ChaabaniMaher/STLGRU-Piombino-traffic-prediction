@@ -43,6 +43,28 @@ python train.py --device cuda:0
 python test.py --checkpoint garage8/PEMS08_epoch_158_16.75.pth --batch_size 1 --device cuda:0
 ```
 
+
+# STLGRU - Piombino Traffic Prediction
+
+## 📊 Results
+- **MAE:** 46.24 vehicles
+- **RMSE:** 73.13 vehicles
+- **R²:** 0.89
+- **Prediction:** 45 minutes ahead (3 steps)
+
+## 🚀 Quick Start
+```bash
+# Install dependencies
+pip install -r requirement.txt
+
+# Run training
+python train_simple.py
+
+# Evaluate results
+python evaluate_results.py
+
+
+
 ## Citation
 
 If you find this useful, please cite our paper: "STLGRU: Spatio-temporal lightweight graph GRU for traffic flow prediction"
@@ -57,5 +79,4 @@ If you find this useful, please cite our paper: "STLGRU: Spatio-temporal lightwe
   organization={Springer}
 }
 ```
-
 
