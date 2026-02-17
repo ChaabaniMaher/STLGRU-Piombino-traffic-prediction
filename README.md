@@ -215,9 +215,12 @@ Test on other cities
 
 Deploy as a real‑time API with a web dashboard
 
-👤 Author
-Maher Chaabani
-📧 chaabanimaher9@gmail.com
-🔗 GitHub
-📍 Tunisia
-# STLGRU-Piombino-traffic-prediction
+
+@inproceedings{bhaumik2024stlgru,
+  title={STLGRU: Spatio-temporal lightweight graph GRU for traffic flow prediction},
+  author={Bhaumik, Kishor Kumar and Niloy, Fahim Faisal and Mahmud, Saif and Woo, Simon S},
+  booktitle={Pacific-Asia Conference on Knowledge Discovery and Data Mining},
+  pages={288--299},
+  year={2024},
+  organization={Springer}
+}
